@@ -1,0 +1,6 @@
+{
+  "name": "Retro Chess AI",
+  "description": "An 8-bit retro chess game featuring human vs local AI (LM Studio/Gemma) with a pixel art aesthetic and custom terminal logs.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
