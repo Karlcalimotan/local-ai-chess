@@ -9,11 +9,13 @@ interface TerminalLogProps {
 }
 
 export const TerminalLog: React.FC<TerminalLogProps> = ({ logs, onClearLogs }) => {
-  const terminalEndRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const [filter, setFilter] = useState<'all' | 'system' | 'ai' | 'action'>('all');
 
   const scrollToBottom = () => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (containerRef.current) {
+      containerRef.current.scrollTop = containerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
@@ -92,7 +94,10 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({ logs, onClearLogs }) =
       </div>
 
       {/* Modern Console Logs display */}
-      <div className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[160px] scrollbar-thin font-mono">
+      <div 
+        ref={containerRef}
+        className="flex-1 overflow-y-auto space-y-2 pr-1 max-h-[160px] scrollbar-thin font-mono"
+      >
         {filteredLogs.length === 0 ? (
           <div className="text-zinc-500 italic text-[11px] py-6 text-center">
             No system log items to display
@@ -121,7 +126,6 @@ export const TerminalLog: React.FC<TerminalLogProps> = ({ logs, onClearLogs }) =
           <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-wide uppercase bg-zinc-800 text-zinc-400 select-none">IDLE</span>
           <span className="w-1.5 h-3.5 bg-zinc-400 animate-pulse ml-0.5 inline-block" />
         </div>
-        <div ref={terminalEndRef} />
       </div>
     </div>
   );

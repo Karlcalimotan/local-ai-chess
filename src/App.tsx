@@ -69,6 +69,9 @@ export default function App() {
   // Pawn Promotion trigger details
   const [pendingPromotion, setPendingPromotion] = useState<{ from: string; to: string } | null>(null);
 
+  // Last Move tracker
+  const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
+
   // Adventure Spell-Casting states
   const [whiteMana, setWhiteMana] = useState<number>(3);
   const [blackMana, setBlackMana] = useState<number>(3);
@@ -169,9 +172,22 @@ export default function App() {
   };
 
   // Keep tracking game state after moves
-  const updateGameState = () => {
+  const updateGameState = (overrideLastMove?: { from: string; to: string } | null) => {
     const freshBoard = chess.board();
     setBoardState(freshBoard);
+
+    if (overrideLastMove !== undefined) {
+      setLastMove(overrideLastMove);
+    } else {
+      // Track the last move from game history
+      const history = chess.history({ verbose: true });
+      const last = history[history.length - 1] || null;
+      if (last) {
+        setLastMove({ from: last.from, to: last.to });
+      } else {
+        setLastMove(null);
+      }
+    }
 
     const checkState = chess.inCheck();
     setIsCheck(checkState);
@@ -775,7 +791,7 @@ export default function App() {
           setSelectedSquare(null);
           setValidMoves([]);
           passTurn(chess);
-          updateGameState();
+          updateGameState({ from: origin, to: squareCode });
         }
       } else if (activeSpell === 'summon') {
         chess.put({ type: 'p', color: playerColor }, squareCode as Square);
@@ -893,6 +909,7 @@ export default function App() {
     setActiveSpell(null);
     setSpellTargetStep(1);
     setSpellSelectedSquare(null);
+    setLastMove(null);
 
     // Color Setup
     let chosenColor: 'w' | 'b' = 'w';
@@ -1329,7 +1346,7 @@ export default function App() {
                 kingSquare={kingSquare}
                 playerColorFlip={playerColor === 'b'}
                 isThinking={isThinking}
-                lastMove={chess.history({ verbose: true }).slice(-1)[0]}
+                lastMove={lastMove}
                 frozenSquares={frozenSquares}
                 activeSpell={activeSpell}
                 spellValidTargets={getSpellValidTargets()}

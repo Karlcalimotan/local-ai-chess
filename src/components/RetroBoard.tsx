@@ -125,9 +125,13 @@ export const RetroBoard: React.FC<RetroBoardProps> = ({
                 } else if (isValidTarget) {
                   squareOverlay = 'bg-emerald-500/10 ring-1 ring-emerald-500/30 cursor-pointer z-10';
                 } else if (isLastMoveDst) {
-                  squareOverlay = 'bg-indigo-500/10 ring-1 ring-indigo-400/30 z-10';
+                  squareOverlay = isDarkSquare 
+                    ? 'bg-amber-500/30 ring-2 ring-amber-400/50 z-10' 
+                    : 'bg-yellow-500/35 ring-2 ring-yellow-400/50 z-10';
                 } else if (isLastMoveSrc) {
-                  squareOverlay = 'bg-indigo-500/5 border border-dashed border-indigo-500/20 z-10';
+                  squareOverlay = isDarkSquare 
+                    ? 'bg-amber-500/15 border border-dashed border-amber-400/30 z-10' 
+                    : 'bg-yellow-500/20 border border-dashed border-yellow-400/40 z-10';
                 }
 
                 return (
