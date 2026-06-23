@@ -24,12 +24,22 @@ import {
 } from 'lucide-react';
 
 const DEFAULT_SETTINGS: GameSettings = {
-  lmStudioUrl: 'http://localhost:1234/v1/chat/completions',
+  lmStudioUrl: 'http://127.0.0.1:1234/v1/chat/completions',
   modelId: 'gemma',
   aiMode: 'local-minimax',
   difficulty: 'medium',
   playerColor: 'white',
   initTimeMinutes: 10
+};
+
+const getRequestUrl = (url: string): string => {
+  if (url.startsWith('http://localhost:1234/v1')) {
+    return url.replace('http://localhost:1234/v1', '/v1');
+  }
+  if (url.startsWith('http://127.0.0.1:1234/v1')) {
+    return url.replace('http://127.0.0.1:1234/v1', '/v1');
+  }
+  return url;
 };
 
 export default function App() {
@@ -527,75 +537,95 @@ export default function App() {
           return `${uci} (or SAN: ${m.san})`;
         }).join(', ');
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 seconds timeout
+        let attempts = 0;
+        const maxAttempts = 3;
+        let success = false;
 
-        try {
-          const response = await fetch(settings.lmStudioUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              model: settings.modelId,
-              messages: [
-                {
-                  role: 'system',
-                  content: `You are an elite chess engine. You compute illegal and legal options and return exactly one legal move. Response format must strictly be a raw JSON object like: {"move": "e2e4"}. Follow instructions exactly.`
+        const runFetchAttempt = async () => {
+          while (attempts < maxAttempts && !success) {
+            attempts++;
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 12000); // 12 seconds timeout
+
+            try {
+              const response = await fetch(getRequestUrl(settings.lmStudioUrl), {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
                 },
-                {
-                  role: 'user',
-                  content: `ACTUAL GAME TELEMETRY:\nFEN: ${boardFen}\nPGN HISTORY: ${boardPgn || 'None yet'}\nLEGAL MOVES FOR YOU TO SELECT: ${movesList}\n\nAnalyze and select one move. Respond strictly using raw JSON layout: {"move": "YOUR_MOVE_HERE"}. Do not include markdown headers, thoughts, conversational remarks, or extra characters.`
+                body: JSON.stringify({
+                  model: settings.modelId,
+                  messages: [
+                    {
+                      role: 'system',
+                      content: `You are an elite chess engine. You compute illegal and legal options and return exactly one legal move. Response format must strictly be a raw JSON object like: {"move": "e2e4"}. Follow instructions exactly. CRITICAL INSTRUCTION: You are in a strict programmatic environment. After you finish your internal reasoning, you MUST output the final JSON object (e.g., {"move": "e4"}) OUTSIDE of any thinking or channel tags. If you do not output the JSON as plain text at the very end of your response, the system will crash.`
+                    },
+                    {
+                      role: 'user',
+                      content: `ACTUAL GAME TELEMETRY:\nFEN: ${boardFen}\nPGN HISTORY: ${boardPgn || 'None yet'}\nLEGAL MOVES FOR YOU TO SELECT: ${movesList}\n\nAnalyze and select one move. Respond strictly using raw JSON layout: {"move": "YOUR_MOVE_HERE"}. Do not include markdown headers, thoughts, conversational remarks, or extra characters.`
+                    }
+                  ],
+                  temperature: 0.7,
+                  max_tokens: 500
+                }),
+                signal: controller.signal
+              });
+
+              clearTimeout(timeoutId);
+
+              if (!response.ok) {
+                throw new Error(`LM Studio HTTP server error! Code: ${response.status}`);
+              }
+
+              const data = await response.json();
+              const rawRep = data.choices?.[0]?.message?.content || '';
+              
+              if (!rawRep.trim()) {
+                addLog(`[WARN] Gemma returned empty content. Retrying... (Attempt ${attempts} of ${maxAttempts})`, 'warning');
+                continue;
+              }
+
+              addLog(`Gemma Raw Response: "${rawRep.replace(/[\n\r]/g, ' ')}"`, 'ai-thought');
+
+              // Deep matching parser with strict validation
+              const matchedMove = extractAndVerifyMove(rawRep, legalMovesFiltered);
+              if (matchedMove) {
+                addLog(`Gemma Selected Move: "${matchedMove.san}"`, 'ai-action');
+                chess.move({ from: matchedMove.from, to: matchedMove.to, promotion: matchedMove.promotion || 'q' });
+                
+                if (matchedMove.captured) {
+                  retroAudio.playCapture();
+                } else {
+                  retroAudio.playMove();
                 }
-              ],
-              temperature: 0.1,
-              max_tokens: 64
-            }),
-            signal: controller.signal
-          });
-
-          clearTimeout(timeoutId);
-
-          if (!response.ok) {
-            throw new Error(`LM Studio HTTP server error! Code: ${response.status}`);
+                
+                setSelectedSquare(null);
+                setValidMoves([]);
+                updateGameState();
+                success = true;
+              } else {
+                addLog(`[WARN] Gemma returned unparsable or illegal move. Retrying... (Attempt ${attempts} of ${maxAttempts})`, 'warning');
+              }
+            } catch (err: any) {
+              clearTimeout(timeoutId);
+              const errorMsg = err.name === 'AbortError' 
+                ? 'LM Studio Server timed out (over 12 seconds).' 
+                : `LM Studio Offline/Failed to fetch: ${err.message}`;
+              
+              addLog(`[WARN] Connection Error: ${errorMsg}. Retrying... (Attempt ${attempts} of ${maxAttempts})`, 'warning');
+            }
           }
 
-          const data = await response.json();
-          const rawRep = data.choices?.[0]?.message?.content || '';
-          addLog(`Gemma Raw Response: "${rawRep.replace(/[\n\r]/g, ' ')}"`, 'ai-thought');
-
-          // Deep matching parser with strict validation
-          const matchedMove = extractAndVerifyMove(rawRep, legalMovesFiltered);
-          if (matchedMove) {
-            addLog(`Gemma Selected Move: "${matchedMove.san}"`, 'ai-action');
-            chess.move({ from: matchedMove.from, to: matchedMove.to, promotion: matchedMove.promotion || 'q' });
-            
-            if (matchedMove.captured) {
-              retroAudio.playCapture();
-            } else {
-              retroAudio.playMove();
-            }
-            
-            setSelectedSquare(null);
-            setValidMoves([]);
-            updateGameState();
-          } else {
-            addLog(`LM server outputted unparsable or illegal move. Activating move correction...`, 'warning');
+          if (!success) {
+            addLog(`All ${maxAttempts} attempts to contact LM Studio model failed or returned invalid moves.`, 'warning');
+            addLog(`Falling back to local minimax decision engine...`, 'warning');
             playFallbackMove(legalMovesFiltered);
           }
-        } catch (err: any) {
-          clearTimeout(timeoutId);
-          const errorMsg = err.name === 'AbortError' 
-            ? 'LM Studio Server timed out (over 12 seconds).' 
-            : `LM Studio Offline/Failed to fetch: ${err.message}`;
+        };
 
-          addLog(`Connection Error: ${errorMsg}`, 'warning');
-          addLog(`Falling back to local minimax decision engine...`, 'warning');
-          
-          playFallbackMove(legalMovesFiltered);
-        } finally {
+        runFetchAttempt().finally(() => {
           setIsThinking(false);
-        }
+        });
       }
     }, 1000);
   };
@@ -989,7 +1019,7 @@ export default function App() {
       // Query models list or completions root. Completions endpoint accepts POST.
       // We can make an lightweight pre-flight completion or list-models get request!
       // Let's do a fast completions test that fails quickly if offline.
-      const urlRoot = settings.lmStudioUrl;
+      const urlRoot = getRequestUrl(settings.lmStudioUrl);
       const res = await fetch(urlRoot, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
